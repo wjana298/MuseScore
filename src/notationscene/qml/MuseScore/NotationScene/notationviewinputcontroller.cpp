@@ -63,6 +63,24 @@ static bool seekAllowed(const mu::engraving::EngravingItem* element)
     return muse::contains(ALLOWED_TYPES, element->type());
 }
 
+static bool startEditWhenClickRelease(const mu::engraving::EngravingItem* element)
+{
+    if (!element) {
+        return false;
+    }
+
+    switch (element->type()) {
+    case ElementType::HBOX:
+    case ElementType::VBOX:
+    case ElementType::TBOX:
+    case ElementType::FBOX:
+    case ElementType::SPACER:
+        return true;
+    default:
+        return false;
+    }
+}
+
 NotationViewInputController::NotationViewInputController(IControlledView* view, const muse::modularity::ContextPtr& iocCtx)
     : muse::Contextable(iocCtx), m_view(view)
 {
@@ -659,7 +677,9 @@ void NotationViewInputController::mousePressEvent(QMouseEvent* event)
         /*.logicalBeginPoint =*/ logicPos
     };
 
+    m_shouldSelectOnLeftClickRelease = false;
     m_shouldStartEditOnLeftClickRelease = false;
+    m_requireNoDragForEditOnLeftClickRelease = false;
     m_ignoreNextMouseContextMenuEvent = false;
 
     // When using MiddleButton, just start moving the canvas
@@ -860,6 +880,12 @@ void NotationViewInputController::mousePress_considerSelect(const ClickContext& 
         if (selection->isRange()
             && (selection->range()->containsItem(ctx.hitElement, ctx.hitStaff)
                 || selection->range()->containsPoint(ctx.logicClickPos))) {
+            m_shouldSelectOnLeftClickRelease = true;
+            return;
+        } else if (ctx.event->button() == Qt::LeftButton
+                   && ctx.event->modifiers() == Qt::NoModifier
+                   && startEditWhenClickRelease(ctx.hitElement)
+                   && !ctx.hitElement->selected()) {
             m_shouldSelectOnLeftClickRelease = true;
             return;
         } else if (ctx.hitElement->selected()) {
@@ -1264,9 +1290,16 @@ void NotationViewInputController::handleLeftClickRelease(const QPointF& releaseP
     }
 
     if (m_shouldStartEditOnLeftClickRelease) {
-        dispatcher()->dispatch("edit-element", ActionData::make_arg1<PointF>(m_mouseDownInfo.logicalBeginPoint));
         m_shouldStartEditOnLeftClickRelease = false;
-        return;
+        const bool isClickWithoutDrag = releasePoint == m_mouseDownInfo.physicalBeginPoint
+                                        && !m_isCanvasDragged
+                                        && !viewInteraction()->isDragStarted();
+        const bool canStartEdit = !m_requireNoDragForEditOnLeftClickRelease || isClickWithoutDrag;
+        m_requireNoDragForEditOnLeftClickRelease = false;
+        if (canStartEdit) {
+            dispatcher()->dispatch("edit-element", ActionData::make_arg1<PointF>(m_mouseDownInfo.logicalBeginPoint));
+            return;
+        }
     }
 
     const INotationInteraction::HitElementContext& ctx = hitElementContext();
@@ -1285,7 +1318,8 @@ void NotationViewInputController::handleLeftClickRelease(const QPointF& releaseP
         INotationInteractionPtr interaction = viewInteraction();
         interaction->select({ ctx.element }, SelectType::SINGLE, staffIndex);
 
-        if (ctx.element->needStartEditingAfterSelecting()) {
+        if (ctx.element->needStartEditingAfterSelecting()
+            && !startEditWhenClickRelease(ctx.element)) {
             viewInteraction()->startEditElement(ctx.element);
             return;
         }
@@ -1782,3 +1816,5 @@ void NotationViewInputController::updateShadowNotePopupVisibility(bool forceHide
 
     m_view->showElementPopup(ElementType::SHADOW_NOTE);
 }
+
+

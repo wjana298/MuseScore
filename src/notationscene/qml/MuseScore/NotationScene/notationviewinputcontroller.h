@@ -247,6 +247,8 @@ private:
     bool m_hitElementWasAlreadySingleSelected = false;
     bool m_shouldSelectOnLeftClickRelease = false;
     bool m_shouldStartEditOnLeftClickRelease = false;
+    bool m_requireNoDragForEditOnLeftClickRelease = false;
     bool m_ignoreNextMouseContextMenuEvent = false;
 };
 }
+
